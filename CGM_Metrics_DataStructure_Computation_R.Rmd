@@ -1,0 +1,794 @@
+---
+title: "Continuous Glucose Monitoring (CGM) Metrics: Data Structure and Computation in R"
+author: "TCHAKONDO Samadou"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: TRUE
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    theme: cosmo               
+    highlight: tango
+  word_document: default
+  pdf_document:
+    latex_engine: xelatex
+---
+
+
+# **Introduction**
+
+Continuous Glucose Monitoring (CGM) systems provide real-time measurements of glucose levels and are increasingly used in diabetes research and clinical practice to assess glycemic control and glucose variability.
+
+Several CGM-derived metrics are commonly used to evaluate:
+- sensor accuracy,
+- short-term glycemic variability,
+- glucose excursions,
+- and inter-day glycemic stability.
+
+This document presents the methodological framework for computing the following CGM metrics in R:
+
+1. Mean Absolute Relative Difference (MARD)
+2. Continuous Overall Net Glycemic Action (CONGA)
+3. Mean Amplitude of Glycemic Excursions (MAGE)
+4. Mean of Daily Differences (MODD)
+
+For each metric, the following are presented:
+- definition and purpose,
+- feasibility of computation,
+- required variables,
+- data structure,
+- formula,
+- R packages and functions,
+- and example R code.
+
+
+
+
+# **Required Data Structure for CGM Analysis**
+
+## **Minimum Variables Required**
+
+|Variable |Description |Required For |
+|---|---|---|
+| id | Participant identifier | All metrics |
+| datetime | Date and time of CGM measurement | All metrics |
+| glucose | CGM glucose measurement | All metrics |
+| reference_glucose | Reference blood glucose value | MARD |
+| day | Day extracted from datetime | MODD |
+
+
+
+## **Recommended Data Structure**
+
+The preferred structure is a **longitudinal long-format dataset**.
+
+| id | datetime | glucose | reference_glucose |
+|---|---|---|---|
+| 001 | 2026-05-01 08:00:00 | 145 | 150 |
+| 001 | 2026-05-01 08:05:00 | 148 | 147 |
+| 001 | 2026-05-01 08:10:00 | 152 | 154 |
+
+
+
+## **Important Considerations**
+
+- CGM observations should preferably be recorded at regular intervals.
+- Typical intervals include:
+  - every 5 minutes,
+  - every 10 minutes,
+  - or every 15 minutes.
+- Datetime values must be correctly formatted.
+- Glucose units should remain consistent throughout the dataset.
+- Missing timestamps and missing glucose values should be checked before analysis.
+
+
+
+
+
+
+
+# **Mean Absolute Relative Difference (MARD)**
+
+## **Definition and Purpose**
+
+Mean Absolute Relative Difference (MARD) is a widely used metric for evaluating the analytical accuracy of Continuous Glucose Monitoring (CGM) systems.
+
+It measures the average relative difference between CGM glucose measurements and corresponding reference glucose values obtained from laboratory or capillary measurements.
+
+Lower MARD values indicate better agreement between CGM readings and reference glucose values, reflecting higher sensor accuracy.
+
+
+
+## **Is It Possible to Compute?**
+
+Yes.
+
+MARD can be computed when paired CGM and reference glucose measurements are available for the same observation time points.
+
+
+
+## **Required Variables**
+
+| Variable | Description |
+|---|---|
+| glucose | CGM glucose measurement |
+| reference_glucose | Reference glucose measurement |
+
+
+## **Recommended Data Structure**
+
+### **Example: Long Format**
+
+| id | datetime | glucose | reference_glucose |
+|---|---|---|---|
+| 001 | 2026-05-01 08:00:00 | 145 | 150 |
+| 001 | 2026-05-01 08:05:00 | 148 | 147 |
+
+
+
+## **Formula**
+
+\[
+MARD = \frac{1}{n}\sum_{i=1}^{n}\left|\frac{CGM_i - REF_i}{REF_i}\right| \times 100
+\]
+
+Where:
+
+- \(CGM_i\) = CGM glucose value at observation \(i\)
+- \(REF_i\) = Reference glucose value at observation \(i\)
+- \(n\) = Number of paired observations
+
+
+
+## **R Packages and Functions**
+
+| Package | Function |
+|---|---|
+| base | mean() |
+| base | abs() |
+| dplyr | group_by(), summarize() |
+
+
+
+## **Traceability**
+
+- `base::mean()`
+- `base::abs()`
+- `dplyr::group_by()`
+- `dplyr::summarize()`
+
+
+
+## **Implementation Examples**
+
+### **Method A: Direct Vector Calculation (Base R)**
+
+This approach calculates the MARD metric directly from two synchronized clinical data vectors.
+```{r mard-base-vector}
+# Sample paired tracking data
+
+cgm <- c(100, 150, 200, 120, 80)
+ref <- c(105, 145, 190, 130, 85)
+
+# Calculate Absolute Relative Differences (ARD)
+
+ard <- abs((cgm - ref) / ref)
+
+# Calculate Mean ARD and convert to percentage
+
+mard <- mean(ard) * 100
+
+print(paste0("MARD: ", round(mard, 2), "%"))
+```
+
+### **Method B: Modular Custom R Function**
+
+This production-grade wrapper adds logical handling to prevent mathematical errors such as division by zero.
+```{r mard-custom-function}
+calculate_mard <- function(cgm_data, ref_data) {
+
+  # Prevent division by zero
+
+  if (any(ref_data == 0)) {
+    stop("Reference data cannot contain zero.")
+  }
+
+  # Compute MARD
+
+  mard_val <- mean(abs((cgm_data - ref_data) / ref_data)) * 100
+
+  return(mard_val)
+}
+
+# Apply function to paired vectors
+
+result <- calculate_mard(cgm, ref)
+
+print(paste0("MARD: ", round(result, 2), "%"))
+```
+
+
+
+### **Method C: Multi-Sensor Analysis (Long Format Data)**
+
+This structure calculates individual MARD values for multiple sensors stored sequentially within a unified long-format dataset.
+```{r mard-long-format}
+library(dplyr)
+
+# Example long-format dataset
+
+df_long <- data.frame(
+  sensor_id = rep(c("Sensor_A", "Sensor_B", "Sensor_C"), each = 4),
+  reading = c(105, 110, 95, 120,
+              102, 107, 98, 122,
+              108, 115, 92, 128),
+  reference = rep(c(100, 108, 100, 125), 3)
+)
+
+# Compute MARD for each sensor
+
+mard_long_results <- df_long %>%
+  group_by(sensor_id) %>%
+  summarize(
+    MARD = mean(abs((reading - reference) / reference)) * 100,
+    .groups = "drop"
+  )
+
+print(mard_long_results)
+```
+
+
+### **Method D: Multi-Sensor Analysis (Wide Format Data)**
+
+This approach handles datasets where multiple sensors are stored in separate columns, allowing simultaneous MARD computation across sensors.
+```{r mard-wide-format}
+# Example wide-format dataset
+
+df_wide <- data.frame(
+  ref = c(100, 110, 120, 130),
+  sensor1 = c(105, 108, 125, 128),
+  sensor2 = c(95, 115, 118, 135),
+  sensor3 = c(102, 112, 119, 131)
+)
+
+# Define sensor columns
+
+sensor_cols <- c("sensor1", "sensor2", "sensor3")
+
+# Compute MARD for each sensor column
+
+mards_wide_results <- sapply(
+  df_wide[sensor_cols],
+  function(sensor_val) {
+    mean(abs((sensor_val - df_wide$ref) / df_wide$ref)) * 100
+  }
+)
+
+print(mards_wide_results)
+```
+
+
+
+#### **Interpretation**
+
+- Lower MARD values indicate higher CGM sensor accuracy.
+- MARD values below 10% are generally considered excellent.
+- Higher MARD values indicate larger discrepancies between CGM and reference measurements.
+
+
+
+## **Important Considerations**
+
+- CGM and reference values must be synchronized temporally.
+- Reference glucose values should never contain zero values.
+- Units must remain consistent throughout the dataset.
+- Missing paired observations should be checked before computation.
+- MARD only evaluates analytical agreement and does not assess glycemic variability.
+
+
+
+
+
+
+
+# **Continuous Overall Net Glycemic Action (CONGA)**
+
+## **Definition and Purpose**
+
+Continuous Overall Net Glycemic Action (CONGA) is a CGM-derived metric used to quantify short-term glycemic variability.
+
+It evaluates glucose fluctuations over a predefined time interval by calculating the standard deviation of glucose differences between measurements separated by a fixed lag period.
+
+CONGA is particularly useful for assessing intra-day glucose instability and short-term glycemic oscillations.
+
+
+
+## **Is It Possible to Compute?**
+
+Yes.
+
+CONGA can be computed using longitudinal CGM data containing sequential glucose measurements associated with timestamps.
+
+
+
+## **Required Variables**
+
+| Variable | Description |
+|---|---|
+| id | Participant identifier |
+| datetime | Timestamp of CGM measurement |
+| glucose | CGM glucose measurement |
+
+
+
+## **Recommended Data Structure**
+
+### **Example: Long Format**
+
+| id | datetime | glucose |
+|---|---|---|
+| Subject_01 | 2026-05-14 08:00:00 | 100 |
+| Subject_01 | 2026-05-14 08:30:00 | 110 |
+| Subject_01 | 2026-05-14 09:00:00 | 130 |
+
+
+
+## **Principle**
+
+CONGA calculates the standard deviation of the differences between glucose values separated by a predefined time lag \(n\).
+
+For example:
+- CONGA1 evaluates variability over 1 hour,
+- CONGA2 evaluates variability over 2 hours.
+
+Higher CONGA values indicate greater short-term glycemic variability.
+
+
+
+## **Formula**
+
+\[
+CONGA_n = SD(G_t - G_{t-n})
+\]
+
+Where:
+
+- \(G_t\) = glucose value at time \(t\)
+- \(G_{t-n}\) = glucose value measured \(n\) hours earlier
+- \(SD\) = standard deviation of all glucose differences
+
+
+
+## **R Packages and Functions**
+
+| Package | Function |
+|---|---|
+| iglu | conga() |
+| dplyr | data manipulation |
+
+
+
+## Traceability
+
+- `iglu::conga()`
+- `dplyr::mutate()`
+- `dplyr::arrange()`
+
+
+
+## **Implementation Example**
+```{r conga-analysis}
+library(iglu)
+library(dplyr)
+
+# 1. Generate compliant CGM dataset
+
+cgm_data <- data.frame(
+  id = rep("Subject_01", 9),
+  time = as.POSIXct(c(
+    "2026-05-14 08:00:00",
+    "2026-05-14 08:30:00",
+    "2026-05-14 09:00:00",
+    "2026-05-14 09:30:00",
+    "2026-05-14 10:00:00",
+    "2026-05-14 10:30:00",
+    "2026-05-14 11:00:00",
+    "2026-05-14 11:30:00",
+    "2026-05-14 12:00:00"
+  ), tz = "GMT"),
+  gl = c(100, 110, 130, 140, 150, 160, 145, 135, 120)
+)
+
+# 2. Inspect input data structure
+
+print("Structured Input Data Frame:")
+print(cgm_data)
+
+# 3. Compute CONGA using a 2-hour lag window
+
+conga_result <- iglu::conga(
+  cgm_data,
+  n = 2,
+  tz = "GMT"
+)
+
+# 4. Display output results
+
+print("CONGA Output Tibble:")
+print(conga_result)
+```
+
+
+
+## **Interpretation**
+
+- Higher CONGA values indicate greater short-term glucose variability.
+- Lower CONGA values indicate more stable glucose profiles.
+- CONGA is sensitive to rapid glucose fluctuations occurring over time.
+
+
+
+## **Important Considerations**
+
+- CGM measurements should preferably occur at regular intervals.
+- Proper timestamp formatting is essential.
+- Missing values and irregular spacing may affect CONGA estimation.
+- Time zone consistency should be maintained throughout the dataset.
+- Longitudinal CGM data are required for valid computation.
+
+
+
+
+
+
+
+# **Mean Amplitude of Glycemic Excursions (MAGE)**
+
+## **Definition and Purpose**
+
+Mean Amplitude of Glycemic Excursions (MAGE) is a CGM-derived metric used to quantify major glucose fluctuations occurring over time.
+
+It measures the average amplitude of significant upward and downward glucose excursions that exceed a predefined variability threshold, typically one standard deviation of the mean glucose profile.
+
+MAGE is commonly used to assess glycemic instability and detect clinically meaningful glucose swings.
+
+
+
+## **Is It Possible to Compute?**
+
+Yes.
+
+MAGE can be computed using longitudinal CGM datasets containing sequential glucose measurements and timestamps.
+
+
+
+## **Required Variables**
+
+| Variable | Description |
+|---|---|
+| id | Participant identifier |
+| datetime | Timestamp of CGM measurement |
+| glucose | CGM glucose measurement |
+
+
+
+## **Recommended Data Structure**
+
+### **Example: Long Format**
+
+| id | datetime | glucose |
+|---|---|---|
+| Subject_01 | 2026-05-14 06:00:00 | 95 |
+| Subject_01 | 2026-05-14 06:30:00 | 90 |
+| Subject_01 | 2026-05-14 07:00:00 | 160 |
+
+
+
+## **Principle**
+
+MAGE identifies significant glucose excursions by detecting peaks and troughs in the glucose profile that exceed one standard deviation of the mean glucose level.
+
+Only major excursions are retained in the computation process.
+
+Higher MAGE values indicate greater glycemic instability and larger glucose fluctuations.
+
+
+
+## **R Packages and Functions**
+
+| Package | Function |
+|---|---|
+| iglu | mage() |
+| dplyr | data manipulation |
+
+
+
+
+## **Traceability**
+
+- `iglu::mage()`
+- `dplyr::mutate()`
+- `dplyr::arrange()`
+
+
+
+## **Implementation Example & Algorithmic Plot**
+
+The `iglu` package calculates MAGE using the same structured layout format as the CONGA function (`id`, `time`, `gl`).
+```{r mage-analysis}
+library(iglu)
+library(dplyr)
+
+# 1. Structure a single-subject dataset
+
+cgm_data_mage <- data.frame(
+  id = rep("Subject_01", 12),
+  time = as.POSIXct(c(
+    "2026-05-14 06:00:00",
+    "2026-05-14 06:30:00",
+    "2026-05-14 07:00:00",
+    "2026-05-14 07:30:00",
+    "2026-05-14 08:00:00",
+    "2026-05-14 08:30:00",
+    "2026-05-14 09:00:00",
+    "2026-05-14 09:30:00",
+    "2026-05-14 10:00:00",
+    "2026-05-14 10:30:00",
+    "2026-05-14 11:00:00",
+    "2026-05-14 11:30:00"
+  ), tz = "GMT"),
+  gl = c(95, 90, 160, 185, 175, 110, 85, 90, 145, 160, 130, 100)
+)
+
+# 2. Inspect the glucose excursion profile
+
+print("Input Data Frame for MAGE:")
+print(cgm_data_mage)
+
+# 3. Compute MAGE
+
+mage_result <- iglu::mage(cgm_data_mage)
+
+# 4. Display output results
+
+print("MAGE Output Tibble:")
+print(mage_result)
+```
+
+
+
+## **Visualizing Excursion Peaks and Troughs**
+
+By setting `plot = TRUE`, the `iglu` package produces a graphical representation of the glucose profile used during MAGE computation.
+
+The visualization:
+- plots the CGM time-series profile,
+- identifies major peaks and troughs,
+- and highlights the excursion threshold band corresponding to one standard deviation.
+```{r mage-visualization, fig.width=10, fig.height=5, warning=FALSE}
+# Render graphical visualization of glucose excursions
+
+iglu::mage(
+  cgm_data_mage,
+  plot = TRUE
+)
+```
+
+
+
+## **Interpretation**
+
+- Higher MAGE values indicate greater glycemic variability and larger glucose excursions.
+- Lower MAGE values indicate more stable glucose profiles.
+- Elevated MAGE is often associated with poor glycemic control and increased glucose instability.
+
+
+
+## **Important Considerations**
+
+- High-frequency CGM measurements are recommended.
+- Proper chronological ordering of timestamps is essential.
+- Missing values may interfere with peak and trough detection.
+- MAGE specifically focuses on major glucose excursions and does not capture all forms of variability.
+- Consistent glucose units should be maintained throughout the dataset.
+
+
+
+
+
+
+
+# **Mean of Daily Differences (MODD)**
+
+## **Definition and Purpose**
+
+Mean of Daily Differences (MODD) is a CGM-derived metric used to evaluate inter-day glycemic stability.
+
+It measures the average absolute difference between glucose values recorded at similar time points on consecutive days.
+
+MODD is particularly useful for assessing day-to-day consistency in glucose profiles and identifying temporal glycemic drift across repeated daily cycles.
+
+
+
+## **Is It Possible to Compute?**
+
+Yes.
+
+MODD can be computed when CGM measurements span at least two consecutive days with sufficiently aligned timestamps.
+
+
+
+## **Required Variables**
+
+| Variable | Description |
+|---|---|
+| id | Participant identifier |
+| datetime | Timestamp of CGM measurement |
+| glucose | CGM glucose measurement |
+
+
+
+## **Recommended Data Structure**
+
+### **Example: Long Format**
+
+| id | datetime | glucose |
+|---|---|---|
+| Subject_01 | 2026-05-14 08:00:00 | 100 |
+| Subject_01 | 2026-05-14 08:15:00 | 110 |
+| Subject_01 | 2026-05-15 08:00:00 | 115 |
+
+
+
+## **Principle**
+
+MODD compares glucose measurements recorded at equivalent time points across consecutive days and computes the mean absolute difference between those paired observations.
+
+Higher MODD values indicate greater day-to-day glucose variability and lower inter-day stability.
+
+
+
+## **Formula**
+
+\[
+MODD = \frac{1}{n}\sum_{i=1}^{n}|G_{day1,i} - G_{day2,i}|
+\]
+
+Where:
+
+- \(G_{day1,i}\) = glucose value at time point \(i\) on day 1
+- \(G_{day2,i}\) = glucose value at the corresponding time point on day 2
+- \(n\) = number of matched paired observations
+
+
+
+## **R Packages and Functions**
+
+| Package | Function |
+|---|---|
+| iglu | modd() |
+| iglu | plot_glu() |
+| dplyr | data manipulation |
+
+
+
+## **Traceability**
+
+- `iglu::modd()`
+- `iglu::plot_glu()`
+- `dplyr::mutate()`
+- `dplyr::arrange()`
+
+
+
+## **Implementation Example & Multi-Day Visualization**
+
+To compute MODD, the input dataset must span multiple days with glucose readings aligned across similar time blocks.
+```{r modd-analysis}
+library(iglu)
+library(dplyr)
+
+# 1. Structure a dataset spanning two consecutive days
+
+cgm_data_modd <- data.frame(
+  id = rep("Subject_01", 10),
+  time = as.POSIXct(c(
+
+    # Day 1 readings
+
+    "2026-05-14 08:00:00",
+    "2026-05-14 08:15:00",
+    "2026-05-14 08:30:00",
+    "2026-05-14 08:45:00",
+    "2026-05-14 09:00:00",
+
+    # Day 2 readings (same time points)
+
+    "2026-05-15 08:00:00",
+    "2026-05-15 08:15:00",
+    "2026-05-15 08:30:00",
+    "2026-05-15 08:45:00",
+    "2026-05-15 09:00:00"
+
+  ), tz = "GMT"),
+
+  gl = c(
+    100, 110, 130, 150, 120,   # Day 1 values
+    115, 120, 125, 170, 110    # Day 2 values
+  )
+)
+
+# 2. Compute MODD
+
+modd_result <- iglu::modd(cgm_data_modd)
+
+# 3. Display output results
+
+print("MODD Output Tibble:")
+print(modd_result)
+```
+
+
+
+## **Visualizing Inter-Day Trajectories**
+
+To visually assess the inter-day differences contributing to the MODD score, glucose trajectories from multiple days can be overlaid using `plot_glu()`.
+
+This visualization:
+- displays longitudinal glucose profiles,
+- compares repeated daily trajectories,
+- and highlights inter-day glucose drift across matching time intervals.
+```{r modd-visualization, fig.width=10, fig.height=5}
+# Generate inter-day glucose trajectory visualization
+
+iglu::plot_glu(
+  cgm_data_modd,
+  plottype = "tsplot",
+  inter_gap = 60,
+  LLTR = 70,
+  ULTR = 180,
+  static_or_gui = "ggplot"
+)
+```
+
+
+
+## **Interpretation**
+
+- Higher MODD values indicate greater inter-day glucose variability.
+- Lower MODD values indicate more stable and reproducible daily glucose patterns.
+- MODD is useful for evaluating consistency of glycemic control across days.
+
+
+
+## **Important Considerations**
+
+- At least two consecutive days of CGM data are required.
+- Matching time points between days improve computation accuracy.
+- Regular CGM intervals are strongly recommended.
+- Missing timestamps or irregular spacing may affect MODD estimation.
+- Time zone consistency should be maintained throughout the dataset.
+- MODD evaluates day-to-day stability and complements intra-day variability metrics such as CONGA and MAGE.
+
+
+
+
+
+
+# **Conclusion**
+
+The four CGM metrics presented in this document can be computed in R when appropriately structured CGM datasets are available.
+
+The essential requirements include:
+- properly formatted timestamps,
+- longitudinal CGM measurements,
+- consistent glucose units,
+- and paired reference glucose values for MARD.
+
+The `iglu` package provides a practical framework for computing CGM variability metrics in R, while maintaining reproducibility and methodological traceability.
+
+```{r session-info}
+sessionInfo()
+```
+
